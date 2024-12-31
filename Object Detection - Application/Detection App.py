@@ -9,6 +9,12 @@ from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import QPushButton
 import time
+from ultralytics import YOLO
+import torch
+from PyQt5.QtWidgets import QSlider
+import pandas as pd
+
+print(torch.cuda.is_available())
 
 global yoloVersion
 yoloVersion = "YOLOv9"
@@ -16,25 +22,54 @@ yoloVersion = "YOLOv9"
 global version_num
 version_num = 9
 
-global device_number
-device_number = 0
+global camera_number
+camera_number = 0
+
+global yoloModel
+yoloModel = "yolov9t.pt"
+
+global device_selection
+device_selection = "GPU"
 
 class CameraThread(QThread):
     # Signal to update the GUI with new frame
-    frame_signal = pyqtSignal(np.ndarray)
+    frame_signal = pyqtSignal(tuple)
 
     def __init__(self):
-        global device_number
+        global camera_number
         super().__init__()
         self.is_running = False
-        self.cap = cv2.VideoCapture(device_number)  # Initialize the camera
+        self.cap = cv2.VideoCapture(camera_number)  # Initialize the camera
+
+
+    def set_model(self, model_name):
+        """Slot to update the model name"""
+        self.model_name = model_name
+        print(f"Model Set to: {self.model_name}")
 
     def run(self):
+        global yoloModel
+        global device_selection
+
+        model = YOLO(f'{yoloModel.lower()}')
+
+        if device_selection == 'GPU':
+            if torch.cuda.is_available():
+                print("CUDA is available; Using GPU.")
+                model.to(torch.device('cuda'))
+                
+        elif device_selection == 'CPU':
+            model.to(torch.device('cpu'))
+            print("Using CPU.")
+
         while self.is_running:
             ret, frame = self.cap.read()
+
             if ret:
-                # Emit signal with the captured frame
-                self.frame_signal.emit(frame)
+                results = model.predict(frame, conf=0.5)
+                self.frame_signal.emit((frame, results))
+            else:
+                print("Failed to capture frame.")
 
     def start_capture(self):
         self.is_running = True
@@ -62,6 +97,13 @@ class MyApp(QWidget):
         self.sysLogs.insertPlainText(text+"\n")
         self.sysLogs.verticalScrollBar().setSliderDown(1)
         self.sysLogs.moveCursor(QtGui.QTextCursor.End)
+        QCoreApplication.processEvents() 
+
+    def updatePredictionLogScreen(self, text, color):
+        self.predLogs.setTextColor(color)
+        self.predLogs.insertPlainText(text+"\n")
+        self.predLogs.verticalScrollBar().setSliderDown(1)
+        self.predLogs.moveCursor(QtGui.QTextCursor.End)
         QCoreApplication.processEvents() 
 
     def InitWindow(self):
@@ -138,19 +180,21 @@ class MyApp(QWidget):
             yoloVersion = YOLOdropdown.currentText()
 
             # Update the model dropdown based on the selected version
-            Modeldropdown.clear()
+            self.Modeldropdown.clear()
             if yoloVersion == 'YOLOv8':
-                Modeldropdown.addItems(['YOLOv8n', 'YOLOv8s', 'YOLOv8m', 'YOLOv8l', 'YOLOv8x'])
-                Modeldropdown.setCurrentIndex(1)
+                self.Modeldropdown.addItems(['YOLOv8n', 'YOLOv8s', 'YOLOv8m', 'YOLOv8l', 'YOLOv8x'])
+                self.Modeldropdown.setCurrentIndex(1)
             elif yoloVersion == 'YOLOv9':
-                Modeldropdown.addItems(['YOLOv9t', 'YOLOv9s', 'YOLOv9m', 'YOLOv9c', 'YOLOv9e'])
-                Modeldropdown.setCurrentIndex(1)
+                self.Modeldropdown.addItems(['YOLOv9t', 'YOLOv9s', 'YOLOv9m', 'YOLOv9c', 'YOLOv9e'])
+                self.Modeldropdown.setCurrentIndex(1)
             elif yoloVersion == 'YOLOv10':
-                Modeldropdown.addItems(['YOLOv10n', 'YOLOv10s', 'YOLOv10m', 'YOLOv10l', 'YOLOv10x'])
-                Modeldropdown.setCurrentIndex(1)
+                self.Modeldropdown.addItems(['YOLOv10n', 'YOLOv10s', 'YOLOv10m', 'YOLOv10l', 'YOLOv10x'])
+                self.Modeldropdown.setCurrentIndex(1)
             elif yoloVersion == 'YOLOv11':
-                Modeldropdown.addItems(['YOLOv11n', 'YOLOv11s', 'YOLOv11m', 'YOLOv11l', 'YOLOv11x'])
-                Modeldropdown.setCurrentIndex(1)
+                self.Modeldropdown.addItems(['YOLOv11n', 'YOLOv11s', 'YOLOv11m', 'YOLOv11l', 'YOLOv11x'])
+                self.Modeldropdown.setCurrentIndex(1)
+
+            self.updateLogScreen(f"{yoloVersion} Version Selected...", self.colors["green"])
 
         # Connect the currentTextChanged signal to the slot
         YOLOdropdown.currentIndexChanged.connect(on_version_changed)
@@ -160,32 +204,48 @@ class MyApp(QWidget):
         Modellabel = QLabel('YOLO Model:', self)
         Modellabel.setStyleSheet("font-size: 20px; font-weight: bold;")
         # Create a dropdown
-        Modeldropdown = QComboBox(self)
-        Modeldropdown.addItems(['YOLOv9t', 'YOLOv9s', 'YOLOv9m', 'YOLOv9c', 'YOLOv9e'])
-        Modeldropdown.setStyleSheet("font-size: 18px;")
+        self.Modeldropdown = QComboBox(self)
+        self.Modeldropdown.addItems(['YOLOv9t', 'YOLOv9s', 'YOLOv9m', 'YOLOv9c', 'YOLOv9e'])
+        self.Modeldropdown.setStyleSheet("font-size: 18px;")
         # Create a horizontal layout
         Modellayout = QHBoxLayout()
         Modellayout.addWidget(Modellabel)
-        Modellayout.addWidget(Modeldropdown)
+        Modellayout.addWidget(self.Modeldropdown)
         self.leftLayout.addLayout(Modellayout)
         self.leftLayout.addSpacing(30)
+
+        def updateModel():
+            global yoloModel
+            yoloModel = self.Modeldropdown.currentText()
+            print("YOLO Model set to "+ yoloModel)
+
+        # Connect the dropdown change to the thread's model signal
+        self.Modeldropdown.currentTextChanged.connect(updateModel)
+
+        
 
         # <-- Device Selector-->
         # Create a label
         Devicelabel = QLabel('Device:', self)
         Devicelabel.setStyleSheet("font-size: 20px; font-weight: bold;")
         # Create a dropdown
-        Devicedropdown = QComboBox(self)
-        Devicedropdown.addItems(['CPU', 'GPU'])
-        Devicedropdown.setCurrentIndex(1)
-        Devicedropdown.setStyleSheet("font-size: 18px;")
+        self.Devicedropdown = QComboBox(self)
+        self.Devicedropdown.addItems(['CPU', 'GPU'])
+        self.Devicedropdown.setCurrentIndex(1)
+        self.Devicedropdown.setStyleSheet("font-size: 18px;")
         # Create a horizontal layout
         Devicelayout = QHBoxLayout()
         Devicelayout.addWidget(Devicelabel)
-        Devicelayout.addWidget(Devicedropdown)
+        Devicelayout.addWidget(self.Devicedropdown)
         self.leftLayout.addLayout(Devicelayout)
         self.leftLayout.addSpacing(30)
 
+        def updateDevice():
+            global device_selection
+            device_selection = self.Devicedropdown.currentText()
+            self.updateLogScreen(f"\"{device_selection}\" Selected as Active Device", self.colors["blue"])
+
+        self.Devicedropdown.currentTextChanged.connect(updateDevice)
 
         #<-- System Logs-->
         logLabel = QLabel()
@@ -272,20 +332,23 @@ class MyApp(QWidget):
         Cameralabel.setStyleSheet("font-size: 22px;")
         # Create a dropdown
         Cameradropdown = QComboBox(self)
-        Cameradropdown.addItems(['Device 0', 'Device 1'])
+        Cameradropdown.addItems(['Camera 0', 'Camera 1'])
         Cameradropdown.setCurrentIndex(0)
         Cameradropdown.setFixedSize(150, 30)
         Cameradropdown.setStyleSheet("font-size: 18px; text-align: center;")
 
         def on_device_changed():
-            global device_number
+            global camera_number
 
-            selected_device = Cameradropdown.currentText()
+            selected_camera = Cameradropdown.currentText()
 
-            if selected_device == 'Device 0':
-                device_number = 0
-            elif selected_device == 'Device 1':
-                device_number = 1
+            if selected_camera == 'Camera 0':
+                camera_number = 0
+                self.updateLogScreen("Camera 0 Selected", self.colors["blue"])
+            elif selected_camera == 'Camera 1':
+                camera_number = 1
+                self.updateLogScreen("Camera 1 Selected", self.colors["blue"])
+
 
         Cameradropdown.currentIndexChanged.connect(on_device_changed)
 
@@ -304,15 +367,151 @@ class MyApp(QWidget):
 
         # Create a QLabel to display the camera feed
         self.cameraFeed = QLabel(self)
-        self.cameraFeed.setFixedSize(1000, 600)
+        self.cameraFeed.setFixedSize(1000, 520)
         self.cameraFeed.setStyleSheet("border: 1px solid black;")
         self.cameraFeed.setAlignment(Qt.AlignCenter)
 
         self.midLayout.addWidget(self.cameraFeed)
 
 
+        #<-- Prediction Logs-->
+        predlogLabel = QLabel()
+        predlogLabel.setText("Prediction Logs")
+        predlogLabel.setAlignment(Qt.AlignCenter)
+        # logLabel.setFixedSize(330,35)
+        predlogLabel.setFont(QtGui.QFont("ROLNER", 11))
+        predlogLabel.setContentsMargins(0,5,0,0)
+        self.midLayout.addWidget(predlogLabel)
+        self.midLayout.addSpacing(10)
+
+        self.predLogs = QTextEdit()
+        self.predLogs.setReadOnly(True)
+        self.predLogs.setFixedSize(1000,260)
+        self.predLogs.setFont(QtGui.QFont("arial-unicode-ms", 9))
+        self.midLayout.addWidget(self.predLogs)
+
         # Adding Stretch at Bottom to make everything Visible
         self.midLayout.addStretch()
+
+        # <<--Mid Layout Design Completed-->>  
+
+
+        # <<--Designing Right Layout-->>  
+
+
+        self.rightLayout.addSpacing(30)
+
+        # Adding a Heading of "Parameters"
+        self.heading = QLabel("Parameters")
+        self.heading.setStyleSheet("font-size: 25px; font-weight: bold;")
+        self.heading.setAlignment(Qt.AlignCenter)
+        self.rightLayout.addWidget(self.heading)
+        self.rightLayout.addSpacing(50)
+
+        # Create a label for Confidence
+        self.confLabel = QLabel('Confidence:   ')
+        self.confLabel.setStyleSheet("font-size: 20px")
+
+        # Create the slider for Confidence
+        self.confSlider = QSlider(Qt.Horizontal)
+        self.confSlider.setMinimum(0)
+        self.confSlider.setMaximum(100)
+        self.confSlider.setValue(50)  # Default value is 50
+        self.confSlider.setTickPosition(QSlider.TicksBelow)
+        self.confSlider.setTickInterval(10)
+        self.confSlider.setFixedSize(200, 30)
+
+        # Create a label to show the current value of the slider
+        self.confValueLabel = QLabel('50')  # Display the initial value of the slider
+        self.confValueLabel.setStyleSheet("font-size: 18px")
+
+        # Layout to hold the components
+        self.confHLayout = QHBoxLayout()
+        self.confHLayout.addWidget(self.confLabel)
+        self.confHLayout.addSpacing(25)
+        self.confHLayout.addWidget(self.confSlider)
+        self.confHLayout.addSpacing(10)
+        self.confHLayout.addWidget(self.confValueLabel)
+
+        self.rightLayout.addLayout(self.confHLayout)
+
+        # Connect the slider's valueChanged signal to the update method
+        self.confSlider.valueChanged.connect(self.update_conf_value)
+
+        self.rightLayout.addSpacing(50)
+
+        # Label and Slider for Rectangle Thickness
+        self.rectLabel = QLabel('Rect Thickness:')
+        self.rectLabel.setStyleSheet("font-size: 20px")
+        self.rectSlider = QSlider(Qt.Horizontal)
+        self.rectSlider.setMinimum(1)
+        self.rectSlider.setMaximum(5)
+        self.rectSlider.setValue(1)
+        self.rectSlider.setTickPosition(QSlider.TicksBelow)
+        self.rectSlider.setTickInterval(1)
+        self.rectSlider.setFixedSize(200, 30)
+        self.rectValueLabel = QLabel('1')
+        self.rectValueLabel.setStyleSheet("font-size: 18px")
+        self.rectHLayout = QHBoxLayout()
+        self.rectHLayout.addWidget(self.rectLabel)
+        self.rectHLayout.addSpacing(10)
+        self.rectHLayout.addWidget(self.rectSlider)
+        self.rectHLayout.addSpacing(10)
+        self.rectHLayout.addWidget(self.rectValueLabel)
+        self.rightLayout.addLayout(self.rectHLayout)
+
+        self.rectSlider.valueChanged.connect(self.update_rect_value)
+
+        self.rightLayout.addSpacing(50)
+
+        # Label and Slider for Text Thickness
+        self.textLabel = QLabel('Text Thickness:')
+        self.textLabel.setStyleSheet("font-size: 20px")
+        self.textSlider = QSlider(Qt.Horizontal)
+        self.textSlider.setMinimum(1)
+        self.textSlider.setMaximum(5)
+        self.textSlider.setValue(1)
+        self.textSlider.setTickPosition(QSlider.TicksBelow)
+        self.textSlider.setTickInterval(1)
+        self.textSlider.setFixedSize(200, 30)
+        self.textValueLabel = QLabel('1')
+        self.textValueLabel.setStyleSheet("font-size: 18px")
+        self.textHLayout = QHBoxLayout()
+        self.textHLayout.addWidget(self.textLabel)
+        self.textHLayout.addSpacing(10)
+        self.textHLayout.addWidget(self.textSlider)
+        self.textHLayout.addSpacing(10)
+        self.textHLayout.addWidget(self.textValueLabel)
+        self.rightLayout.addLayout(self.textHLayout)
+        self.textSlider.valueChanged.connect(self.update_text_value)
+
+        self.rightLayout.addSpacing(50)
+
+        # Label and Slider for Text Size
+        self.textSizeLabel = QLabel('Text Size:        ')
+        self.textSizeLabel.setStyleSheet("font-size: 20px")
+        self.textSizeSlider = QSlider(Qt.Horizontal)
+        self.textSizeSlider.setMinimum(1)
+        self.textSizeSlider.setMaximum(5)
+        self.textSizeSlider.setValue(1)
+        self.textSizeSlider.setTickPosition(QSlider.TicksBelow)
+        self.textSizeSlider.setTickInterval(1)
+        self.textSizeSlider.setFixedSize(200, 30)
+        self.textSizeValueLabel = QLabel('1')
+        self.textSizeValueLabel.setStyleSheet("font-size: 18px")
+        self.textSizeHLayout = QHBoxLayout()
+        self.textSizeHLayout.addWidget(self.textSizeLabel)
+        self.textSizeHLayout.addSpacing(10)
+        self.textSizeHLayout.addWidget(self.textSizeSlider)
+        self.textSizeHLayout.addSpacing(10)
+        self.textSizeHLayout.addWidget(self.textSizeValueLabel)
+        self.rightLayout.addLayout(self.textSizeHLayout)
+
+        self.textSizeSlider.valueChanged.connect(self.update_text_size_value)
+
+
+        # Adding Stretch at Bottom to make everything Visible
+        self.rightLayout.addStretch()
 
         # Adding Borders to Frames
         self.frameLeft.setFrameStyle(QFrame.Panel | QFrame.Raised)
@@ -324,6 +523,26 @@ class MyApp(QWidget):
         self.main_layout.addWidget(self.frameMid)
         self.main_layout.addWidget(self.frameRight)
         self.setLayout(self.main_layout)
+
+    def update_conf_value(self):
+        # Update the label with the current slider value
+        current_value = self.confSlider.value()
+        self.confValueLabel.setText(str(current_value))
+
+    def update_rect_value(self):
+        # Update the label with the current slider value
+        current_value = self.rectSlider.value()
+        self.rectValueLabel.setText(str(current_value))
+
+    def update_text_value(self):
+        # Update the label with the current slider value
+        current_value = self.textSlider.value()
+        self.textValueLabel.setText(str(current_value))
+
+    def update_text_size_value(self):
+        # Update the label with the current slider value
+        current_value = self.textSizeSlider.value()
+        self.textSizeValueLabel.setText(str(current_value))
 
     def toggle_video_feed(self):
         if self.is_video_running:
@@ -337,6 +556,7 @@ class MyApp(QWidget):
             self.camera_thread.wait()
             self.cameraFeed.clear()
             self.cameraFeed.setText('Camera Feed Stopped')
+            self.updateLogScreen("Detection Stoped...", self.colors["red"])
             
         else:
             # Start the video feed
@@ -346,19 +566,87 @@ class MyApp(QWidget):
             self.startButton.setText('  Stop Detection')
             self.startButton.setIcon(QtGui.QIcon('./Data/Stop.png'))
             self.is_video_running = True
+            self.updateLogScreen("Detection Started...", self.colors["green"])
 
-    def update_frame(self, frame):
+    def predict(chosen_model, img, classes=[], conf=0.5):
+        # Check if classes are specified for filtering
+        # if classes:
+        #     results = chosen_model.predict(img, classes=classes, conf=conf)
+        # else:
+        results = chosen_model.predict(img, conf=conf)
+
+        return results
+
+    def update_frame(self, data):
+        frame, results = data
+        classes = []
+        conf_val = 0.5
+        rectangle_thickness = 1
+        text_thickness = 1
+        text_scale = 0.5
+
         # Convert the frame from BGR (OpenCV format) to RGB (PyQt format)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        # Convert the frame to QImage
+        # Assuming you are working with a single image result, access the first element
+        result = results[0]
+
+        # Get speed metrics from the results
+        speed = result.speed  # Dictionary containing speed metrics
+        preprocess_time = speed.get('preprocess', 'N/A')
+        inference_time = speed.get('inference', 'N/A')
+        postprocess_time = speed.get('postprocess', 'N/A')
+
+        # Get bounding boxes, labels, and confidence scores
+        boxes = result.boxes.xywh  # Bounding boxes (x, y, width, height)
+        confidences = result.boxes.conf  # Confidence scores
+        labels = result.names  # Class names
+
+        # You can create a DataFrame if you want to display the data
+        predictions_df = pd.DataFrame({
+            'label': [labels[int(label)] for label in result.boxes.cls],
+            'confidence': confidences.tolist(),
+        })
+
+        if result:
+            # Format the results as a string
+            result_str = ""
+            for i, label in enumerate(result.boxes.cls):
+                label_name = labels[int(label)]  # Get the class name
+                confidence = confidences[i]  # Get the confidence score
+
+                # Adding the 2nd Onwards results on New Line
+                if (i == 0):
+                    result_str += f"Detected <{label_name.upper()}> with {confidence*100:.0f}% Confidence"
+                else:
+                    result_str += f"\nDetected <{label_name.upper()}> with {confidence*100:.0f}% Confidence"
+            
+            self.updatePredictionLogScreen(result_str, self.colors["blue"])
+        
+            speed_results = f"Preprocess: {preprocess_time:.2f}ms, Inference: {inference_time:.2f}ms, Postprocess: {postprocess_time:.2f}ms"
+            self.updatePredictionLogScreen(speed_results, self.colors["green"])
+            self.updatePredictionLogScreen("------------------------------------------------------------------------------------------------\n",
+                                            self.colors["black"])
+
+        # Show the DataFrame
+        # print(predictions_df)
+
+        for result in results:
+            for box in result.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                class_name = result.names[int(box.cls[0])]
+                cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (255, 0, 0), rectangle_thickness)
+                cv2.putText(rgb_frame, class_name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, text_scale, (255, 0, 0), text_thickness)
+
+        # Convert to QImage and display
         h, w, ch = rgb_frame.shape
         bytes_per_line = ch * w
         qimg = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-
-        # Convert QImage to QPixmap and set it to the label
         pixmap = QPixmap.fromImage(qimg)
         self.cameraFeed.setPixmap(pixmap)
+
+        self.cameraFeed.setPixmap(QPixmap.fromImage(qimg))
+        
 
     def closeEvent(self, event):
         # Release the camera and close the application
