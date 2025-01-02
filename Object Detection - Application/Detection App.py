@@ -43,6 +43,16 @@ inference_list = []
 global postprocess_list
 postprocess_list = []
 
+global conf_val
+global rect_thickness
+global text_thickness
+global text_scale
+
+conf_val = 0.5
+rect_thickness = 1
+text_thickness = 1
+text_scale = 0.5
+
 class CameraThread(QThread):
     # Signal to update the GUI with new frame
     frame_signal = pyqtSignal(tuple)
@@ -215,7 +225,7 @@ class MyApp(QWidget):
                 self.Modeldropdown.addItems(['YOLOv10n', 'YOLOv10s', 'YOLOv10m', 'YOLOv10l', 'YOLOv10x'])
                 self.Modeldropdown.setCurrentIndex(1)
             elif yoloVersion == 'YOLOv11':
-                self.Modeldropdown.addItems(['YOLOv11n', 'YOLOv11s', 'YOLOv11m', 'YOLOv11l', 'YOLOv11x'])
+                self.Modeldropdown.addItems(['YOLO11n', 'YOLO11s', 'YOLO11m', 'YOLO11l', 'YOLO11x'])
                 self.Modeldropdown.setCurrentIndex(1)
 
             self.updateLogScreen(f"{yoloVersion} Version Selected...", self.colors["green"])
@@ -516,12 +526,12 @@ class MyApp(QWidget):
         self.textSizeLabel.setStyleSheet("font-size: 20px")
         self.textSizeSlider = QSlider(Qt.Horizontal)
         self.textSizeSlider.setMinimum(1)
-        self.textSizeSlider.setMaximum(5)
+        self.textSizeSlider.setMaximum(6)
         self.textSizeSlider.setValue(1)
         self.textSizeSlider.setTickPosition(QSlider.TicksBelow)
         self.textSizeSlider.setTickInterval(1)
         self.textSizeSlider.setFixedSize(200, 30)
-        self.textSizeValueLabel = QLabel('1')
+        self.textSizeValueLabel = QLabel('0.5')
         self.textSizeValueLabel.setStyleSheet("font-size: 18px")
         self.textSizeHLayout = QHBoxLayout()
         self.textSizeHLayout.addWidget(self.textSizeLabel)
@@ -587,24 +597,33 @@ PostProcess -> Min = --- ms  : Max = --- ms\n""")
         self.setLayout(self.main_layout)
 
     def update_conf_value(self):
+        global conf_val
         # Update the label with the current slider value
         current_value = self.confSlider.value()
         self.confValueLabel.setText(str(current_value))
+        conf_val = int(current_value) / 100
+
 
     def update_rect_value(self):
         # Update the label with the current slider value
         current_value = self.rectSlider.value()
         self.rectValueLabel.setText(str(current_value))
+        global rect_thickness
+        rect_thickness = int(current_value)
 
     def update_text_value(self):
         # Update the label with the current slider value
         current_value = self.textSlider.value()
         self.textValueLabel.setText(str(current_value))
+        global text_thickness
+        text_thickness = int(current_value)
 
     def update_text_size_value(self):
         # Update the label with the current slider value
         current_value = self.textSizeSlider.value()
-        self.textSizeValueLabel.setText(str(current_value))
+        self.textSizeValueLabel.setText(str(current_value/2))
+        global text_scale
+        text_scale = float(current_value/2)
 
     def toggle_video_feed(self):
         if self.is_video_running:
@@ -629,6 +648,9 @@ PostProcess -> Min = --- ms  : Max = --- ms\n""")
             self.startButton.setIcon(QtGui.QIcon('./Data/Stop.png'))
             self.is_video_running = True
             self.updateLogScreen("Detection Started...", self.colors["green"])
+            self.updateLogScreen(f"Confidence Level: {conf_val*100}%\nRectangle Thickness: {rect_thickness}\nText Thickness: {text_thickness}\nText Size: {text_scale}",
+                                  self.colors["blue"])
+
 
     def predict(chosen_model, img, classes=[], conf=0.5):
         # Check if classes are specified for filtering
@@ -641,11 +663,12 @@ PostProcess -> Min = --- ms  : Max = --- ms\n""")
 
     def update_frame(self, data):
         frame, results = data
-        classes = []
-        conf_val = 0.5
-        rectangle_thickness = 1
-        text_thickness = 1
-        text_scale = 0.5
+
+        global conf_val
+        global rect_thickness
+        global text_thickness
+        global text_scale
+        
 
         # Convert the frame from BGR (OpenCV format) to RGB (PyQt format)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -660,15 +683,10 @@ PostProcess -> Min = --- ms  : Max = --- ms\n""")
         postprocess_time = speed.get('postprocess', 'N/A')
 
         # Get bounding boxes, labels, and confidence scores
-        boxes = result.boxes.xywh  # Bounding boxes (x, y, width, height)
+        # boxes = result.boxes.xywh  # Bounding boxes (x, y, width, height)
         confidences = result.boxes.conf  # Confidence scores
         labels = result.names  # Class names
 
-        # You can create a DataFrame if you want to display the data
-        predictions_df = pd.DataFrame({
-            'label': [labels[int(label)] for label in result.boxes.cls],
-            'confidence': confidences.tolist(),
-        })
 
         global unique_classes
         # Get Unique Classes from Results
@@ -736,7 +754,7 @@ PostProcess -> Min = --- ms  : Max = --- ms\n""")
             for box in result.boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 class_name = result.names[int(box.cls[0])]
-                cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (255, 0, 0), rectangle_thickness)
+                cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (255, 0, 0), rect_thickness)
                 cv2.putText(rgb_frame, class_name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, text_scale, (255, 0, 0), text_thickness)
 
         # Convert to QImage and display
