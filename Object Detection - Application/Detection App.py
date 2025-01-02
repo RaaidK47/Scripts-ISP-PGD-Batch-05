@@ -31,6 +31,18 @@ yoloModel = "yolov9t.pt"
 global device_selection
 device_selection = "GPU"
 
+global unique_classes
+unique_classes = set()
+
+global preprocess_list
+preprocess_list = []
+
+global inference_list
+inference_list = []
+
+global postprocess_list
+postprocess_list = []
+
 class CameraThread(QThread):
     # Signal to update the GUI with new frame
     frame_signal = pyqtSignal(tuple)
@@ -50,6 +62,18 @@ class CameraThread(QThread):
     def run(self):
         global yoloModel
         global device_selection
+        global unique_classes
+        global preprocess_list
+        global inference_list
+        global postprocess_list
+
+        # Resetting "Unique Classes on Restart of Detection"
+        unique_classes = set()
+
+        # Restting Process Times List on Restart of Detection
+        preprocess_list = []
+        inference_list = []
+        postprocess_list = []
 
         model = YOLO(f'{yoloModel.lower()}')
 
@@ -509,6 +533,44 @@ class MyApp(QWidget):
 
         self.textSizeSlider.valueChanged.connect(self.update_text_size_value)
 
+        self.rightLayout.addSpacing(50)
+        # Results Sections
+        self.result = QLabel("Results")
+        self.result.setStyleSheet("font-size: 25px; font-weight: bold;")
+        self.result.setAlignment(Qt.AlignCenter)
+        self.rightLayout.addWidget(self.result)
+        self.rightLayout.addSpacing(30)
+
+        # A dynamic results label that shows all the results of Object Detection Results
+        self.classesLabel = QLabel("Classes Detected")
+        self.classesLabel.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self.classesLabel.setAlignment(Qt.AlignLeft)
+        self.rightLayout.addWidget(self.classesLabel)
+        self.rightLayout.addSpacing(20)
+
+
+        self.clasees_detected = QLabel()
+        self.clasees_detected.setStyleSheet("font-size: 17px;")
+        self.clasees_detected.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.rightLayout.addWidget(self.clasees_detected)
+        self.clasees_detected.setText('----')
+        self.clasees_detected.setFixedHeight(200)
+
+        # Results Time 
+        self.resultTimeHeading = QLabel("Time Taken")
+        self.resultTimeHeading.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self.resultTimeHeading.setAlignment(Qt.AlignLeft)
+        self.rightLayout.addWidget(self.resultTimeHeading)
+        # self.rightLayout.addSpacing(20)
+
+        self.resultstime = QLabel()
+        self.resultstime.setStyleSheet("font-size: 17px;")
+        self.resultstime.setAlignment(Qt.AlignLeft)
+        self.rightLayout.addWidget(self.resultstime)
+        self.resultstime.setText("""
+PreProcess   -> Min = --- ms  : Max = --- ms\n
+Inference     -> Min = --- ms  : Max = --- ms\n
+PostProcess -> Min = --- ms  : Max = --- ms\n""")
 
         # Adding Stretch at Bottom to make everything Visible
         self.rightLayout.addStretch()
@@ -607,6 +669,45 @@ class MyApp(QWidget):
             'label': [labels[int(label)] for label in result.boxes.cls],
             'confidence': confidences.tolist(),
         })
+
+        global unique_classes
+        # Get Unique Classes from Results
+        for label in result.boxes.cls:
+            unique_classes.add(labels[int(label)])
+            # print(unique_classes)
+
+        unique_classes_str =  ", ".join(word.capitalize() for word in unique_classes)
+        self.clasees_detected.setText(str(unique_classes_str))
+
+        global preprocess_list
+        global inference_list
+        global postprocess_list
+
+        # Not Adding time = 0 ms
+        if preprocess_time != 0:
+            preprocess_list.append(preprocess_time)
+        
+        if inference_time != 0:
+            inference_list.append(inference_time)
+        
+        if postprocess_time != 0:
+            postprocess_list.append(postprocess_time)
+
+        # Check that none of the three lists is empty
+        all_not_empty = all(len(lst) > 0 for lst in [preprocess_list, inference_list, postprocess_list])
+
+        if all_not_empty:
+            self.resultstime.setText(f"""
+PreProcess   -> Min = {min(preprocess_list):.2f} ms  : Max = {max(preprocess_list):.2f} ms\n
+Inference     -> Min = {min(inference_list):.2f} ms  : Max = {max(inference_list):.2f} ms\n
+PostProcess -> Min = {min(postprocess_list):.2f} ms  : Max = {max(postprocess_list):.2f} ms\n""")
+            
+        else:
+            self.resultstime.setText("""
+PreProcess   -> Min = --- ms  : Max = --- ms\n
+Inference     -> Min = --- ms  : Max = --- ms\n
+PostProcess -> Min = --- ms  : Max = --- ms\n""")
+
 
         if result:
             # Format the results as a string
