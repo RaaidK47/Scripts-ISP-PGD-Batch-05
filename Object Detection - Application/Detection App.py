@@ -95,12 +95,15 @@ class CameraThread(QThread):
         elif device_selection == 'CPU':
             model.to(torch.device('cpu'))
             print("Using CPU.")
+       
+        global conf_val
 
         while self.is_running:
             ret, frame = self.cap.read()
 
             if ret:
-                results = model.predict(frame, conf=0.5)
+                frame = cv2.flip(frame, 1)  # Flip the frame horizontally
+                results = model.predict(frame, conf=conf_val)
                 self.frame_signal.emit((frame, results))
             else:
                 print("Failed to capture frame.")
@@ -402,8 +405,9 @@ class MyApp(QWidget):
         # Create a QLabel to display the camera feed
         self.cameraFeed = QLabel(self)
         self.cameraFeed.setFixedSize(1000, 520)
-        self.cameraFeed.setStyleSheet("border: 1px solid black;")
+        self.cameraFeed.setStyleSheet("border: 1px solid black;font-size: 18px;")
         self.cameraFeed.setAlignment(Qt.AlignCenter)
+        self.cameraFeed.setText("Feed Not Detected")
 
         self.midLayout.addWidget(self.cameraFeed)
 
@@ -474,6 +478,8 @@ class MyApp(QWidget):
 
         self.rightLayout.addSpacing(50)
 
+        
+
         # Label and Slider for Rectangle Thickness
         self.rectLabel = QLabel('Rect Thickness:')
         self.rectLabel.setStyleSheet("font-size: 20px")
@@ -493,6 +499,10 @@ class MyApp(QWidget):
         self.rectHLayout.addSpacing(10)
         self.rectHLayout.addWidget(self.rectValueLabel)
         self.rightLayout.addLayout(self.rectHLayout)
+
+        self.step_size = 1  # Custom step size
+        # Changing Slider Default Step Size (i.e 10) to 1
+        self.rectSlider.mousePressEvent = self.rect_slider_mousePressEvent
 
         self.rectSlider.valueChanged.connect(self.update_rect_value)
 
@@ -518,6 +528,8 @@ class MyApp(QWidget):
         self.textHLayout.addWidget(self.textValueLabel)
         self.rightLayout.addLayout(self.textHLayout)
         self.textSlider.valueChanged.connect(self.update_text_value)
+        # Changing Slider Default Step Size (i.e 10) to 1
+        self.textSlider.mousePressEvent = self.text_slider_mousePressEvent
 
         self.rightLayout.addSpacing(50)
 
@@ -542,6 +554,8 @@ class MyApp(QWidget):
         self.rightLayout.addLayout(self.textSizeHLayout)
 
         self.textSizeSlider.valueChanged.connect(self.update_text_size_value)
+        # Changing Slider Default Step Size (i.e 10) to 1
+        self.textSizeSlider.mousePressEvent = self.textsize_slider_mousePressEvent
 
         self.rightLayout.addSpacing(50)
         # Results Sections
@@ -595,6 +609,69 @@ PostProcess -> Min = --- ms  : Max = --- ms\n""")
         self.main_layout.addWidget(self.frameMid)
         self.main_layout.addWidget(self.frameRight)
         self.setLayout(self.main_layout)
+
+    def rect_slider_mousePressEvent(self, event):
+        # Calculate the current slider value based on the click position
+        if event.button() == Qt.LeftButton:
+            x_position = event.pos().x()
+            slider_width = self.rectSlider.width()
+            clicked_value = self.rectSlider.minimum() + (
+                (self.rectSlider.maximum() - self.rectSlider.minimum()) * x_position / slider_width
+            )
+
+            # Adjust the value by the desired step size
+            current_value = self.rectSlider.value()
+            if clicked_value > current_value:
+                new_value = min(self.rectSlider.maximum(), current_value + self.step_size)
+            else:
+                new_value = max(self.rectSlider.minimum(), current_value - self.step_size)
+
+            self.rectSlider.setValue(int(new_value))  # Update the slider value
+
+        # Call the base class implementation for other mouse events
+        super(QSlider, self.rectSlider).mousePressEvent(event)
+
+    def text_slider_mousePressEvent(self, event):
+        # Calculate the current slider value based on the click position
+        if event.button() == Qt.LeftButton:
+            x_position = event.pos().x()
+            slider_width = self.textSlider.width()
+            clicked_value = self.textSlider.minimum() + (
+                (self.textSlider.maximum() - self.textSlider.minimum()) * x_position / slider_width
+            )
+
+            # Adjust the value by the desired step size
+            current_value = self.textSlider.value()
+            if clicked_value > current_value:
+                new_value = min(self.textSlider.maximum(), current_value + self.step_size)
+            else:
+                new_value = max(self.textSlider.minimum(), current_value - self.step_size)
+
+            self.textSlider.setValue(int(new_value))  # Update the slider value
+
+        # Call the base class implementation for other mouse events
+        super(QSlider, self.textSlider).mousePressEvent(event)
+
+    def textsize_slider_mousePressEvent(self, event):
+        # Calculate the current slider value based on the click position
+        if event.button() == Qt.LeftButton:
+            x_position = event.pos().x()
+            slider_width = self.textSizeSlider.width()
+            clicked_value = self.textSizeSlider.minimum() + (
+                (self.textSizeSlider.maximum() - self.textSizeSlider.minimum()) * x_position / slider_width
+            )
+
+            # Adjust the value by the desired step size
+            current_value = self.textSizeSlider.value()
+            if clicked_value > current_value:
+                new_value = min(self.textSizeSlider.maximum(), current_value + self.step_size)
+            else:
+                new_value = max(self.textSizeSlider.minimum(), current_value - self.step_size)
+
+            self.textSizeSlider.setValue(int(new_value))  # Update the slider value
+
+        # Call the base class implementation for other mouse events
+        super(QSlider, self.textSizeSlider).mousePressEvent(event)
 
     def update_conf_value(self):
         global conf_val
@@ -694,6 +771,7 @@ PostProcess -> Min = --- ms  : Max = --- ms\n""")
             unique_classes.add(labels[int(label)])
             # print(unique_classes)
 
+
         unique_classes_str =  ", ".join(word.capitalize() for word in unique_classes)
         self.clasees_detected.setText(str(unique_classes_str))
 
@@ -752,10 +830,12 @@ PostProcess -> Min = --- ms  : Max = --- ms\n""")
 
         for result in results:
             for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                class_name = result.names[int(box.cls[0])]
+                x1, y1, x2, y2 = map(int, box.xyxy[0])  # Bounding box coordinates
+                class_name = result.names[int(box.cls[0])] # Class name
+                confidence = float(box.conf[0])  # Confidence score
+                label = f"{class_name}  {confidence*100:.2f}%"  # Combine class name and confidence
                 cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (255, 0, 0), rect_thickness)
-                cv2.putText(rgb_frame, class_name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, text_scale, (255, 0, 0), text_thickness)
+                cv2.putText(rgb_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, text_scale, (255, 0, 0), text_thickness)
 
         # Convert to QImage and display
         h, w, ch = rgb_frame.shape
